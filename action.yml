@@ -1,0 +1,143 @@
+name: Atlas register
+description: >-
+  Register what a repository declares, what a release built, or what a deploy
+  put live, with an Atlas service. Prints Atlas's answer to the job summary and
+  never fails the job.
+branding:
+  icon: map
+  color: blue
+
+inputs:
+  moment:
+    description: merge, release or deploy.
+    required: true
+  atlas-url:
+    description: The Atlas API's base URL.
+    required: true
+  read-key:
+    description: A read key Atlas issued to you (a secret).
+    required: true
+  writer-key:
+    description: The writer key Atlas issued for this repository (a secret). Without it, the run is a dry run.
+    required: false
+    default: ""
+  dry-run:
+    description: true to ask what the write would change, storing nothing.
+    required: false
+    default: "false"
+  repository:
+    description: owner/repository the record or report is about. For a deploy of something you do not own, the owner's repository.
+    required: false
+    default: ${{ github.repository }}
+  revision:
+    description: The commit registered.
+    required: false
+    default: ${{ github.sha }}
+  document-id:
+    description: The record's id; repository/<name> by default.
+    required: false
+    default: ""
+  # merge
+  services:
+    description: "merge: one service per line, as <id> <kind> (kind: api, worker, site, data_store, gateway, control_plane, other)."
+    required: false
+    default: ""
+  labels:
+    description: "merge: the repository's labels, one per line, as <kind>=<value>."
+    required: false
+    default: ""
+  identifiers:
+    description: "merge: the repository's identifiers, one per line, as <kind>=<value>; deploy: what the deploy ran on or in."
+    required: false
+    default: ""
+  service-labels:
+    description: "merge: one per line, as <service>:<kind>=<value>."
+    required: false
+    default: ""
+  service-identifiers:
+    description: "merge: one per line, as <service>:<kind>=<value>."
+    required: false
+    default: ""
+  config:
+    description: "merge: <service>:<NAME>=<source>[|<target>] per line; deploy: <NAME>=<source>[|<target>]. Sources are pointers, never values."
+    required: false
+    default: ""
+  health:
+    description: "merge: one per line, as <service>=<public https health URL>, checked by Atlas."
+    required: false
+    default: ""
+  relationships:
+    description: "merge: one per line, as <from> <kind> <to>; <to> may be owner/repo#service/id."
+    required: false
+    default: ""
+  capabilities:
+    description: 'merge: a JSON list of {"verb", "description", "how", "command", "account", "credential", "service"}.'
+    required: false
+    default: ""
+  intent:
+    description: "merge: established facts this write changes on purpose, one per line, as <field>=<reason>."
+    required: false
+    default: ""
+  # release and deploy
+  subject:
+    description: "release and deploy: the service released or deployed."
+    required: false
+    default: ""
+  version:
+    description: "release and deploy: the version."
+    required: false
+    default: ""
+  artifacts:
+    description: "release: one per line, as <name>[@<digest>]."
+    required: false
+    default: ""
+  image:
+    description: "deploy: the image that runs, ideally with its digest."
+    required: false
+    default: ""
+  endpoints:
+    description: "deploy: the endpoints it serves, one per line."
+    required: false
+    default: ""
+  source:
+    description: The reporting system's name.
+    required: false
+    default: github-actions
+
+outputs:
+  outcome:
+    description: created, updated, unchanged, kept, refused or unreachable.
+    value: ${{ steps.register.outputs.outcome }}
+
+runs:
+  using: composite
+  steps:
+    - id: register
+      shell: bash
+      run: '"$GITHUB_ACTION_PATH/register.sh"'
+      env:
+        ATLAS_MOMENT: ${{ inputs.moment }}
+        ATLAS_URL: ${{ inputs.atlas-url }}
+        ATLAS_READ_KEY: ${{ inputs.read-key }}
+        ATLAS_WRITER_KEY: ${{ inputs.writer-key }}
+        ATLAS_DRY_RUN: ${{ inputs.dry-run }}
+        ATLAS_REPOSITORY: ${{ inputs.repository }}
+        ATLAS_REVISION: ${{ inputs.revision }}
+        ATLAS_DOCUMENT_ID: ${{ inputs.document-id }}
+        ATLAS_SERVICES: ${{ inputs.services }}
+        ATLAS_LABELS: ${{ inputs.labels }}
+        ATLAS_IDENTIFIERS: ${{ inputs.identifiers }}
+        ATLAS_SERVICE_LABELS: ${{ inputs.service-labels }}
+        ATLAS_SERVICE_IDENTIFIERS: ${{ inputs.service-identifiers }}
+        ATLAS_CONFIG: ${{ inputs.config }}
+        ATLAS_HEALTH: ${{ inputs.health }}
+        ATLAS_RELATIONSHIPS: ${{ inputs.relationships }}
+        ATLAS_CAPABILITIES: ${{ inputs.capabilities }}
+        ATLAS_INTENT: ${{ inputs.intent }}
+        ATLAS_SUBJECT: ${{ inputs.subject }}
+        ATLAS_VERSION: ${{ inputs.version }}
+        ATLAS_ARTIFACTS: ${{ inputs.artifacts }}
+        ATLAS_IMAGE: ${{ inputs.image }}
+        ATLAS_ENDPOINTS: ${{ inputs.endpoints }}
+        ATLAS_SOURCE: ${{ inputs.source }}
+        ATLAS_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
