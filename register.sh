@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds one registration (a record at merge, a release report, a deployment
+# Builds one registration (a complete record, a release report, a deployment
 # report) from the ATLAS_* environment, sends it to Atlas, and prints Atlas's
 # answer. It never fails the job: Atlas does not gate anything, and neither does
 # this. Needs bash, curl and jq.
@@ -20,6 +20,12 @@ repo=$(printf '%s' "${ATLAS_REPOSITORY:-}" | tr 'A-Z' 'a-z')
 revision=${ATLAS_REVISION:-main}
 dry=${ATLAS_DRY_RUN:-false}
 [ -z "${ATLAS_WRITER_KEY:-}" ] && dry=true
+# curl config values and HTTP headers cannot contain line breaks. Do not echo
+# rejected credentials; refusal still leaves the surrounding job successful.
+if [[ "${ATLAS_READ_KEY:-}" == *$'\r'* || "${ATLAS_READ_KEY:-}" == *$'\n'* ]] ||
+   { [ "$dry" != true ] && [[ "${ATLAS_WRITER_KEY:-}" == *$'\r'* || "${ATLAS_WRITER_KEY:-}" == *$'\n'* ]]; }; then
+  note "a credential contains a line break; nothing registered"; finish refused
+fi
 run_url=${ATLAS_RUN_URL:-https://github.com/$repo}
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 unknown=()
@@ -41,12 +47,15 @@ config_of() { jq -R 'index("=") as $i | .[$i+1:] as $v | ($v | split("|")) as $p
   | {name: .[:$i], source: $p[0]} + (if ($p | length) > 1 and $p[1] != "" then {target: $p[1]} else {} end)'; }
 
 case "$moment" in
-merge)
+record|merge)
   name=${repo#*/}
   doc_id=${ATLAS_DOCUMENT_ID:-repository/$name}
   services=$(lines "${ATLAS_SERVICES:-}" | jq -R 'split(" ") | map(select(. != "")) | {id: .[0], kind: (.[1] // "other")}' | jq -s '.')
   service_labels=$(per_service "${ATLAS_SERVICE_LABELS:-}")
   service_ids=$(per_service "${ATLAS_SERVICE_IDENTIFIERS:-}")
+  service_notes=$(per_service "${ATLAS_SERVICE_NOTES:-}")
+  service_deployed=$(per_service "${ATLAS_SERVICE_DEPLOYED:-}")
+  service_lifecycles=$(per_service "${ATLAS_SERVICE_LIFECYCLES:-}")
   service_config=$(per_service "${ATLAS_CONFIG:-}" | jq -c '.[]' | while read -r item; do
     svc=$(jq -r .service <<<"$item"); jq -r .rest <<<"$item" | config_of | jq --arg s "$svc" '{service: $s} + .'
   done | jq -s '.')
@@ -58,19 +67,23 @@ merge)
   repo_labels=$(labels "${ATLAS_LABELS:-}")
   repo_ids=$(kv "${ATLAS_IDENTIFIERS:-}")
   body=$(jq -n --arg doc "$doc_id" --arg repo "$repo" --arg rev "$revision" \
+    --arg lifecycle "${ATLAS_LIFECYCLE:-active}" --argjson snotes "$service_notes" --argjson sdeployed "$service_deployed" --argjson slifecycles "$service_lifecycles" \
     --argjson services "$services" --argjson slabels "$service_labels" --argjson sids "$service_ids" \
     --argjson sconfig "$service_config" --argjson health "$health" --argjson rels "$relationships" \
     --argjson caps "$capabilities" --argjson intent "$intent" --argjson labels "$repo_labels" --argjson ids "$repo_ids" '
     def nonempty(f): if (f | length) > 0 then f else empty end;
     {document_id: $doc, source_repository: $repo, source_revision: $rev,
      content: {
-      repository: ({id: $repo, catalogue_lifecycle: "active", run_policy: "continuous"}
+      repository: ({id: $repo, catalogue_lifecycle: $lifecycle, run_policy: "continuous"}
         + (if ($labels | length) > 0 then {labels: $labels} else {} end)
         + (if ($ids | length) > 0 then {identifiers: $ids} else {} end)
         + ([$caps[] | select(.service == null)] as $c | if ($c | length) > 0 then {capabilities: $c} else {} end)),
       targets: [$services[] | {id: ("runs-" + .id), kind: "environment"}],
       services: [$services[] | .id as $s | {id: $s, kind: .kind, catalogue_lifecycle: "active",
         run_policy: "continuous", target_id: ("runs-" + $s)}
+        + ([$snotes[] | select(.service == $s) | .rest] | if length > 0 then {note: .[-1]} else {} end)
+        + ([$sdeployed[] | select(.service == $s) | .rest] | if length > 0 then {deployed: .[-1]} else {} end)
+        + ([$slifecycles[] | select(.service == $s) | .rest] | if length > 0 then {catalogue_lifecycle: .[-1]} else {} end)
         + ([$slabels[] | select(.service == $s) | .rest | index("=") as $i | {kind: .[:$i], value: .[$i+1:]}]
             | if length > 0 then {labels: (reduce .[] as $l ({}; .[$l.kind] += [$l.value]))} else {} end)
         + ([$sids[] | select(.service == $s) | .rest | index("=") as $i | {kind: .[:$i], value: .[$i+1:]}]
@@ -118,14 +131,20 @@ release|deploy)
   path="/v1/foreign-summaries/$subject"
   ;;
 *)
-  note "moment must be merge, release or deploy; nothing registered"; finish refused ;;
+  note "moment must be record, release or deploy (merge is a compatibility alias for record); nothing registered"; finish refused ;;
 esac
 
 [ "$dry" = true ] && path="$path?dry_run=true"
-headers=(-H "Content-Type: application/json" -H "X-Atlas-Key: ${ATLAS_READ_KEY:-}")
-[ "$dry" != true ] && headers+=(-H "X-Atlas-Writer-Key: ${ATLAS_WRITER_KEY}")
+# Keys are read through curl's stdin config, never exposed in process arguments.
+header() {
+  local value="$2"
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  printf 'header = "%s: %s"\n' "$1" "$value"
+}
+auth() { header X-Atlas-Key "${ATLAS_READ_KEY:-}"; [ "$dry" = true ] || header X-Atlas-Writer-Key "${ATLAS_WRITER_KEY}"; }
 response=$(mktemp)
-status=$(curl -sS -o "$response" -w '%{http_code}' --max-time 30 -X PUT "${headers[@]}" --data "$body" "$url$path") || status=000
+status=$(auth | curl --config - -sS -o "$response" -w '%{http_code}' --max-time 30 -X PUT -H 'Content-Type: application/json' --data "$body" "$url$path") || status=000
 
 summary "### Atlas: $moment of \`$repo\`$( [ "$dry" = true ] && echo ' (dry run)')"
 if [ "$status" = 000 ]; then

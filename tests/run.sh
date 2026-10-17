@@ -25,7 +25,7 @@ check() { # name, condition result
 }
 outcome() { sed -n 's/^outcome=//p' "$1/output"; }
 
-merge=(ATLAS_MOMENT=merge ATLAS_URL="$ATLAS_URL" ATLAS_READ_KEY="$ATLAS_READ_KEY"
+merge=(ATLAS_MOMENT=record ATLAS_URL="$ATLAS_URL" ATLAS_READ_KEY="$ATLAS_READ_KEY"
   "ATLAS_SERVICES=web site
 worker worker"
   "ATLAS_LABELS=product=shop
@@ -41,9 +41,38 @@ read -r code dir < <(step "${merge[@]}" ATLAS_WRITER_KEY=)
 check "a dry run without a writer key answers and exits 0" $([ "$code" = 0 ] && [ "$(outcome "$dir")" = created ] && grep -q "(dry run)" "$dir/summary"; echo $?)
 
 read -r code dir < <(step "${merge[@]}" ATLAS_WRITER_KEY="$ATLAS_WRITER_KEY")
-check "a merge registers the record" $([ "$code" = 0 ] && [ "$(outcome "$dir")" = created ]; echo $?)
+check "a record moment registers the record" $([ "$code" = 0 ] && [ "$(outcome "$dir")" = created ]; echo $?)
 read -r code dir < <(step "${merge[@]}" ATLAS_WRITER_KEY="$ATLAS_WRITER_KEY")
-check "the same merge again is unchanged" $([ "$(outcome "$dir")" = unchanged ]; echo $?)
+check "the same complete record again is unchanged" $([ "$(outcome "$dir")" = unchanged ]; echo $?)
+
+complete=("${merge[@]}" 'ATLAS_SERVICES=web site
+worker worker
+database data_store' 'ATLAS_SERVICE_NOTES=web:Application: public UI
+worker:Runs inside users hosts
+database:Managed database' 'ATLAS_SERVICE_DEPLOYED=worker:by-users
+database:provisioned' 'ATLAS_SERVICE_LIFECYCLES=worker:maintenance' ATLAS_LIFECYCLE=maintenance)
+read -r code dir < <(step "${complete[@]}" ATLAS_WRITER_KEY="$ATLAS_WRITER_KEY")
+check "complete registration accepts notes, deployed and lifecycle" $([ "$(outcome "$dir")" = updated ]; echo $?)
+read -r code dir < <(step "${complete[@]}" ATLAS_WRITER_KEY="$ATLAS_WRITER_KEY")
+check "repeated complete registration retains optional fields" $([ "$(outcome "$dir")" = unchanged ]; echo $?)
+context() {
+  local key="$ATLAS_READ_KEY"
+  key=${key//\\/\\\\}; key=${key//\"/\\\"}
+  printf 'header = "X-Atlas-Key: %s"\n' "$key" | curl --config - -fsS "$ATLAS_URL/v1/context/repository/$repo"
+}
+check "whole-record readback retains owner note, deployed and both lifecycles" $(context | jq -e '
+ .semantics[0].content | ([.services[].id] | sort) == ["database","web","worker"] and .repository.catalogue_lifecycle == "maintenance" and
+ any(.services[]; .id == "web" and .note == "Application: public UI") and
+ any(.services[]; .id == "worker" and .note == "Runs inside users hosts" and .deployed == "by-users" and .catalogue_lifecycle == "maintenance") and
+ any(.services[]; .id == "database" and .note == "Managed database" and .deployed == "provisioned")' >/dev/null; echo $?)
+read -r code dir < <(step "${merge[@]}" ATLAS_WRITER_KEY="$ATLAS_WRITER_KEY" ATLAS_MOMENT=merge)
+check "merge remains a record compatibility alias" $([ "$(outcome "$dir")" = updated ]; echo $?)
+check "omitted optional owner fields are removed on replacement" $(context | jq -e '.semantics[0].content | ([.services[].id] | sort) == ["web","worker"] and .repository.catalogue_lifecycle == "active" and all(.services[]; has("note") == false and has("deployed") == false and .catalogue_lifecycle == "active")' >/dev/null; echo $?)
+
+read -r code dir < <(step "${merge[@]}" ATLAS_READ_KEY=$'invalid\nkey' ATLAS_WRITER_KEY="$ATLAS_WRITER_KEY")
+check "a read credential with a newline is refused without failing the job" $([ "$code" = 0 ] && [ "$(outcome "$dir")" = refused ] && grep -q 'credential contains a line break' "$dir/log"; echo $?)
+read -r code dir < <(step "${merge[@]}" ATLAS_WRITER_KEY=$'invalid\rkey')
+check "a writer credential with a carriage return is refused without failing the job" $([ "$code" = 0 ] && [ "$(outcome "$dir")" = refused ] && grep -q 'credential contains a line break' "$dir/log"; echo $?)
 
 read -r code dir < <(step "${merge[@]/ATLAS_LABELS=product=shop/ATLAS_LABELS=product=store}" ATLAS_WRITER_KEY="$ATLAS_WRITER_KEY")
 check "an established product is kept, and the summary says so" $(grep -q "| kept |" "$dir/summary"; echo $?)

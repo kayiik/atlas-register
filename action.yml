@@ -9,7 +9,7 @@ branding:
 
 inputs:
   moment:
-    description: merge, release or deploy.
+    description: record, release or deploy. merge remains an alias for record; run registration on release or workflow_dispatch.
     required: true
   atlas-url:
     description: The Atlas API's base URL.
@@ -37,45 +37,61 @@ inputs:
     description: The record's id; repository/<name> by default.
     required: false
     default: ""
-  # merge
+  # complete record
+  lifecycle:
+    description: "record: the repository lifecycle (planned, active, maintenance or retired)."
+    required: false
+    default: active
+  service-notes:
+    description: "record: owner notes, one per line as <service>:<note>. Repeat in every complete registration; omission removes the note."
+    required: false
+    default: ""
+  service-deployed:
+    description: "record: <service>:provisioned or <service>:by-users per line. Omit for services whose deployer reports them."
+    required: false
+    default: ""
+  service-lifecycles:
+    description: "record: <service>:<planned|active|maintenance|retired> per line; defaults to active."
+    required: false
+    default: ""
   services:
-    description: "merge: one service per line, as <id> <kind> (kind: api, worker, site, data_store, gateway, control_plane, other)."
+    description: "record: one service per line, as <id> <kind> (kind: api, worker, site, data_store, gateway, control_plane, other)."
     required: false
     default: ""
   labels:
-    description: "merge: the repository's labels, one per line, as <kind>=<value>."
+    description: "record: the repository's labels, one per line, as <kind>=<value>."
     required: false
     default: ""
   identifiers:
-    description: "merge: the repository's identifiers, one per line, as <kind>=<value>; deploy: what the deploy ran on or in."
+    description: "record: the repository's identifiers, one per line, as <kind>=<value>; deploy: what the deploy ran on or in."
     required: false
     default: ""
   service-labels:
-    description: "merge: one per line, as <service>:<kind>=<value>."
+    description: "record: one per line, as <service>:<kind>=<value>."
     required: false
     default: ""
   service-identifiers:
-    description: "merge: one per line, as <service>:<kind>=<value>."
+    description: "record: one per line, as <service>:<kind>=<value>."
     required: false
     default: ""
   config:
-    description: "merge: <service>:<NAME>=<source>[|<target>] per line; deploy: <NAME>=<source>[|<target>]. Sources are pointers, never values."
+    description: "record: <service>:<NAME>=<source>[|<target>] per line; deploy: <NAME>=<source>[|<target>]. Sources are pointers, never values. Targets mean consumed endpoints, not management/display links."
     required: false
     default: ""
   health:
-    description: "merge: one per line, as <service>=<public https health URL>, checked by Atlas."
+    description: "record: one per line, as <service>=<public https health URL>, checked by Atlas."
     required: false
     default: ""
   relationships:
-    description: "merge: one per line, as <from> <kind> <to>; <to> may be owner/repo#service/id."
+    description: "record: one per line, as <from> <kind> <to>; <to> may be owner/repo#service/id."
     required: false
     default: ""
   capabilities:
-    description: 'merge: a JSON list of {"verb", "description", "how", "command", "account", "credential", "service"}.'
+    description: 'record: a JSON list of {"verb", "description", "how", "command", "account", "credential", "service"}.'
     required: false
     default: ""
   intent:
-    description: "merge: established facts this write changes on purpose, one per line, as <field>=<reason>."
+    description: "record: established facts this write changes on purpose, one per line, as <field>=<reason>."
     required: false
     default: ""
   # release and deploy
@@ -129,6 +145,10 @@ runs:
         ATLAS_IDENTIFIERS: ${{ inputs.identifiers }}
         ATLAS_SERVICE_LABELS: ${{ inputs.service-labels }}
         ATLAS_SERVICE_IDENTIFIERS: ${{ inputs.service-identifiers }}
+        ATLAS_LIFECYCLE: ${{ inputs.lifecycle }}
+        ATLAS_SERVICE_NOTES: ${{ inputs.service-notes }}
+        ATLAS_SERVICE_DEPLOYED: ${{ inputs.service-deployed }}
+        ATLAS_SERVICE_LIFECYCLES: ${{ inputs.service-lifecycles }}
         ATLAS_CONFIG: ${{ inputs.config }}
         ATLAS_HEALTH: ${{ inputs.health }}
         ATLAS_RELATIONSHIPS: ${{ inputs.relationships }}

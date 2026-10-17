@@ -7,7 +7,9 @@ here=$(cd "$(dirname "$0")/.." && { pwd -W 2>/dev/null || pwd; })
 export MSYS_NO_PATHCONV=1 # Git Bash on Windows: pass container paths as they are
 image=${ATLAS_IMAGE:?set ATLAS_IMAGE to an Atlas image}
 run=atlas-register-test-$$
-read_key=read-$RANDOM$RANDOM operator_key=operator-$RANDOM$RANDOM
+# Include literal backslash+t and quotes: the script must preserve them through
+# curl's stdin-config parser, not turn the backslash+t into a tab.
+read_key="read-$RANDOM$RANDOM\\token\"quoted" operator_key=operator-$RANDOM$RANDOM
 
 cleanup() { docker rm -f "$run-atlas" "$run-runner" >/dev/null 2>&1 || true; docker network rm "$run" >/dev/null 2>&1 || true
   docker image rm -f "$run-runner" >/dev/null 2>&1 || true; }
