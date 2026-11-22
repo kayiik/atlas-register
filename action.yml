@@ -37,6 +37,14 @@ inputs:
     description: The record's id; repository/<name> by default.
     required: false
     default: ""
+  payload-file:
+    description: "Optional UTF-8 JSON file: a complete record object, or a nonempty release/deploy report list. Preserves all fields and observation times. Requires Python 3."
+    required: false
+    default: ""
+  expected-current-file:
+    description: "Optional current record snapshot for payload-file record publication. Refuses publication if the stored record changed since preparation."
+    required: false
+    default: ""
   # complete record
   lifecycle:
     description: "record: the repository lifecycle (planned, active, maintenance or retired)."
@@ -124,6 +132,9 @@ outputs:
   outcome:
     description: created, updated, unchanged, kept, refused or unreachable.
     value: ${{ steps.register.outputs.outcome }}
+  verified:
+    description: "true only when payload-file publication was read back exactly from stored context; false for previews or errors."
+    value: ${{ steps.register.outputs.verified }}
 
 runs:
   using: composite
@@ -140,6 +151,8 @@ runs:
         ATLAS_REPOSITORY: ${{ inputs.repository }}
         ATLAS_REVISION: ${{ inputs.revision }}
         ATLAS_DOCUMENT_ID: ${{ inputs.document-id }}
+        ATLAS_PAYLOAD_FILE: ${{ inputs.payload-file }}
+        ATLAS_EXPECTED_CURRENT_FILE: ${{ inputs.expected-current-file }}
         ATLAS_SERVICES: ${{ inputs.services }}
         ATLAS_LABELS: ${{ inputs.labels }}
         ATLAS_IDENTIFIERS: ${{ inputs.identifiers }}
