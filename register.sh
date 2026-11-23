@@ -10,6 +10,12 @@ summary() { if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$*" >>"$GI
 finish() { out outcome "$1"; exit 0; }
 note() { echo "::warning::atlas-register: $*"; }
 
+if [ -n "${ATLAS_PAYLOAD_FILE:-}" ]; then
+  command -v python3 >/dev/null || { note "python3 is required for payload-file"; out verified false; finish unreachable; }
+  python3 "$(dirname "$0")/publish.py" || { note "retained payload publication failed; delivery continues"; out verified false; finish refused; }
+  exit 0
+fi
+
 for tool in curl jq; do
   command -v "$tool" >/dev/null || { note "$tool is not installed; nothing registered"; finish unreachable; }
 done

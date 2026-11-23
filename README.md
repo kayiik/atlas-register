@@ -77,6 +77,59 @@ Every input is described in [action.yml](action.yml). Sources in `config` are
 pointers to where a value is kept, never the value; Atlas refuses anything that
 looks like a secret.
 
+### Complete declarations and retained evidence
+
+When a workflow already collects a complete declaration or report, pass its
+UTF-8 JSON file instead of rebuilding it from the convenience inputs:
+
+```yaml
+- uses: kayiik/atlas-register@<reviewed-commit-sha>
+  with:
+    moment: record
+    atlas-url: ${{ vars.ATLAS_URL }}
+    read-key: ${{ secrets.ATLAS_READ_KEY }}
+    writer-key: ${{ secrets.ATLAS_WRITER_KEY }}
+    revision: ${{ github.sha }}
+    payload-file: atlas-record.json
+
+# Run inside the successful deployer's workflow, after retaining the outbox.
+- uses: kayiik/atlas-register@<reviewed-commit-sha>
+  with:
+    moment: deploy
+    atlas-url: ${{ vars.ATLAS_URL }}
+    read-key: ${{ secrets.ATLAS_READ_KEY }}
+    writer-key: ${{ secrets.ATLAS_WRITER_KEY }}
+    payload-file: deployment-evidence/summaries.json
+```
+
+This path requires Python 3 (included on GitHub's Ubuntu runners). `record`
+accepts the complete semantic document object; `release` and `deploy` accept a
+nonempty JSON list of their respective foreign-summary kind. The payload's
+repository must equal `repository`; a record's source revision must equal
+`revision`. Convenience inputs do not modify a payload file. Keep identifiers
+in CI/runtime configuration and keep secret values out of every payload.
+
+The publisher previews every entry before the first real write, retains each
+report's original timestamp, state and full details, retries transient errors,
+and verifies both the API echo and the exact stored repository context. It does
+not follow authenticated redirects. `verified` is `true` only after this stored
+readback; it is `false` for a dry run, refusal or outage. `outcome` reports the
+aggregate result. Atlas failures remain warnings and never fail delivery.
+
+For a release declaration selected after checking commit ancestry, write the
+current record snapshot to a separate JSON file and pass it as
+`expected-current-file`. Publication refuses a changed snapshot. Serialize all
+owner declaration writers in one workflow concurrency group. Atlas has no
+conditional PUT: an unrelated writer after the final check remains outside this
+boundary.
+
+Retain the outbox as a workflow artifact before publication. Retry publication
+with the same file, without rebuilding or redeploying. An outage mid-batch can
+leave some entries published; replaying the unchanged outbox completes it.
+An older report kept by Atlas is reported as unverified instead of pretending
+that a newer stored observation proves this receipt. Do not require a reachable
+Atlas or a registered declaration before building or deploying.
+
 `moment: record` is a **whole-record replacement**. Send all services and owner
 fields every time, including notes, deployed markers and lifecycle. Omission
 removes an owner's optional fields; it is not a patch. Operator-set labels and
